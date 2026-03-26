@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RouteMate by InnovationCrew</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        /* Base Reset */
+        body { background-color: #e5e5e5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        
+        /* The Mobile Phone Frame (For Desktop Viewing) */
+        .app-frame { 
+            position: relative; width: 100%; height: 100vh; background: #f3f4f6; overflow: hidden; 
+        }
+        @media (min-width: 480px) { 
+            .app-frame { width: 400px; height: 850px; border-radius: 40px; border: 12px solid #111; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); } 
+        }
+
+        /* Full Screen Map */
+        #map { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; }
+
+        /* Floating UI Elements */
+        .floating-top-ui { position: absolute; top: 0; left: 0; right: 0; padding: 3rem 1.5rem 1.5rem 1.5rem; z-index: 20; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; transition: opacity 0.3s; }
+        .float-btn { background: white; width: 45px; height: 45px; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer; font-size: 1.2rem; transition: transform 0.1s; }
+        .float-btn:active { transform: scale(0.95); }
+
+        /* Uber-style Bottom Sheets */
+        .bottom-sheet { position: absolute; bottom: 0; left: 0; right: 0; background: white; border-top-left-radius: 24px; border-top-right-radius: 24px; box-shadow: 0 -5px 25px rgba(0,0,0,0.1); z-index: 30; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); display: flex; flex-direction: column; max-height: 85vh; }
+        .bottom-sheet.active { transform: translateY(0); }
+        .sheet-handle { width: 40px; height: 5px; background: #e5e7eb; border-radius: 3px; margin: 12px mx-auto 20px auto; align-self: center; }
+        .sheet-content { padding: 0 1.5rem 2rem 1.5rem; overflow-y: auto; }
+
+        /* Login Screen (Covers Everything) */
+        #login-screen { position: absolute; inset: 0; background: white; z-index: 50; display: flex; flex-direction: column; justify-content: space-between; padding: 3rem 1.5rem; transition: opacity 0.4s; }
+        #login-screen.hidden { opacity: 0; pointer-events: none; }
+
+        /* Modals (Alerts overlay) */
+        .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); z-index: 60; opacity: 0; pointer-events: none; transition: opacity 0.3s; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-box { background: white; width: 100%; border-radius: 24px; padding: 2rem; transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .modal-overlay.active .modal-box { transform: scale(1); }
+
+        /* Hide scrollbars for clean UI */
+        ::-webkit-scrollbar { display: none; }
+        
+        /* Inputs */
+        input:focus, select:focus { outline: none; border-color: black; }
+    </style>
+</head>
+
+<body>
+
+<div class="app-frame">
+
+    <div id="map">
+        <div class="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 font-bold">
+            Loading Map...
+        </div>
+    </div>
+
+    <div id="top-ui" class="floating-top-ui" style="opacity: 0;">
+        <button class="float-btn" onclick="window.switchScreen('home-screen')">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div class="bg-white px-4 py-2 rounded-full shadow-md font-bold text-sm pointer-events-auto flex items-center gap-2">
+            <div class="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs">👤</div>
+            <span id="display-name">Guest</span>
+        </div>
+    </div>
+
+    <div id="back-btn" class="floating-top-ui hidden">
+        <button class="float-btn" onclick="window.switchScreen('home-screen')">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+    </div>
+
+    <div id="login-screen">
+        <div>
+            <h1 class="text-4xl font-black tracking-tight mb-2 mt-10">RouteMate</h1>
+            <p class="text-gray-500 text-lg">Enter your details to ride.</p>
+        </div>
+        
+        <div id="step-1-phone" class="w-full">
+            <input id="user-name" type="text" placeholder="First Name" class="w-full bg-gray-100 rounded-lg p-4 mb-3 text-lg font-medium border-2 border-transparent">
+            <input id="user-contact" type="tel" placeholder="Phone number" class="w-full bg-gray-100 rounded-lg p-4 mb-6 text-lg font-medium border-2 border-transparent">
+            <button onclick="window.sendOTP()" class="w-full bg-black text-white font-bold py-4 rounded-xl text-lg hover:bg-gray-800 transition">Continue</button>
+        </div>
+
+        <div id="step-2-otp" class="hidden w-full">
+            <p class="text-gray-500 mb-4">Enter the 4-digit code sent to your phone (Demo: 1234)</p>
+            <input id="user-otp" type="number" placeholder="0000" class="w-full bg-gray-100 rounded-lg p-4 mb-6 text-center text-3xl tracking-[1em] font-black border-2 border-transparent">
+            <button onclick="window.verifyOTPLogin()" class="w-full bg-black text-white font-bold py-4 rounded-xl text-lg hover:bg-gray-800 transition">Verify</button>
+        </div>
+        
+        <p class="text-center text-xs text-gray-400 font-bold mb-4">By InnovationCrew</p>
+    </div>
+
+    <div id="home-screen" class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-content">
+            <h2 class="text-3xl font-bold mb-6">Where to?</h2>
+            
+            <button onclick="window.switchScreen('rider-search-screen')" class="w-full bg-gray-100 p-4 rounded-xl flex items-center justify-between mb-6 active:bg-gray-200 transition">
+                <div class="flex items-center gap-3">
+                    <span class="text-xl">🔍</span>
+                    <span class="text-xl font-semibold text-gray-800">Find a ride</span>
+                </div>
+                <div class="bg-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Now</div>
+            </button>
+
+            <div class="flex gap-4">
+                <button onclick="window.switchScreen('driver-screen')" class="flex-1 bg-gray-100 p-4 rounded-xl flex flex-col items-center justify-center active:bg-gray-200 transition">
+                    <span class="text-3xl mb-2">🚘</span>
+                    <span class="font-bold text-sm text-gray-800">Offer a Ride</span>
+                </button>
+                <div class="flex-1 bg-green-50 p-4 rounded-xl flex flex-col justify-center border border-green-100">
+                    <span class="text-green-700 font-bold text-sm mb-1">Save 45%</span>
+                    <span class="text-green-900 text-xs">Cheaper than Rapido everyday.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="rider-search-screen" class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-content">
+            <h2 class="text-2xl font-bold mb-6 text-center">Plan your ride</h2>
+            
+            <div class="relative bg-gray-100 rounded-xl p-2 mb-6">
+                <div class="absolute left-6 top-8 bottom-8 w-0.5 bg-gray-300"></div>
+                <div class="absolute left-[21px] top-[26px] w-2.5 h-2.5 bg-gray-400 rounded-full"></div>
+                <div class="absolute left-[21px] bottom-[26px] w-2.5 h-2.5 bg-black rounded-sm"></div>
+
+                <div class="pl-10 pr-2">
+                    <input type="text" id="rider-start" list="hubs-list" placeholder="Current location" class="w-full bg-transparent border-none p-3 font-medium text-lg outline-none border-b border-gray-200">
+                    <input type="text" id="rider-end" list="colleges-list" placeholder="Where to?" class="w-full bg-transparent border-none p-3 font-medium text-lg outline-none">
+                </div>
+            </div>
+
+            <button onclick="window.findMatches()" class="w-full bg-black text-white font-bold py-4 rounded-xl text-lg hover:bg-gray-800 transition">Search Nearby Drivers</button>
+        </div>
+    </div>
+
+    <div id="rider-results-screen" class="bottom-sheet h-[60vh]">
+        <div class="sheet-handle"></div>
+        <div class="sheet-content h-full flex flex-col">
+            <h2 class="text-xl font-bold mb-4">Choose a ride</h2>
+            
+            <div id="rides-list" class="flex-1 overflow-y-auto space-y-4 pb-20">
+                <div class="flex flex-col items-center justify-center h-40 opacity-50">
+                    <div class="animate-spin w-8 h-8 border-4 border-black border-t-transparent rounded-full mb-4"></div>
+                    <p class="font-bold">Finding routes...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="driver-screen" class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-content">
+            <h2 class="text-2xl font-bold mb-6">Publish Route</h2>
+            
+            <select id="driver-vehicle" class="w-full bg-gray-100 border-none rounded-xl p-4 mb-4 font-bold text-lg outline-none">
+                <option value="Bike">🏍️ Moto</option>
+                <option value="Share Auto">🛺 Auto</option>
+                <option value="Car">🚗 Go (Car)</option>
+            </select>
+            
+            <div class="relative bg-gray-100 rounded-xl p-2 mb-6">
+                <div class="absolute left-6 top-8 bottom-8 w-0.5 bg-gray-300"></div>
+                <div class="absolute left-[21px] top-[26px] w-2.5 h-2.5 bg-gray-400 rounded-full"></div>
+                <div class="absolute left-[21px] bottom-[26px] w-2.5 h-2.5 bg-black rounded-sm"></div>
+
+                <div class="pl-10 pr-2">
+                    <input type="text" id="driver-start" list="hubs-list" placeholder="Start Area" class="w-full bg-transparent border-none p-3 font-medium text-lg outline-none border-b border-gray-200">
+                    <input type="text" id="driver-end" list="colleges-list" placeholder="College Destination" class="w-full bg-transparent border-none p-3 font-medium text-lg outline-none">
+                </div>
+            </div>
+            
+            <button id="publish-btn" onclick="window.startDriving()" class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl text-lg hover:bg-blue-700 transition">Go Online</button>
+        </div>
+    </div>
+
+    <div id="driver-modal" class="modal-overlay">
+        <div class="modal-box text-center border-t-8 border-black">
+            <div class="bg-gray-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">👤</div>
+            <h3 class="text-2xl font-black mb-1">Ride Request</h3>
+            <p class="text-gray-500 mb-6 text-lg"><span id="req-rider-name" class="font-bold text-black">Someone</span> is on your route.</p>
+            
+            <div class="flex gap-3">
+                <button onclick="window.closeModal('driver-modal')" class="flex-1 bg-gray-200 font-bold py-4 rounded-xl text-gray-700">Decline</button>
+                <button id="accept-btn" onclick="window.acceptRide()" class="flex-[2] bg-black text-white font-bold py-4 rounded-xl text-lg shadow-lg">Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="driver-otp-modal" class="modal-overlay">
+        <div class="modal-box text-center">
+            <h3 class="text-2xl font-black mb-2">Enter Rider PIN</h3>
+            <p class="text-gray-500 mb-6">Ask <span id="otp-rider-name" class="font-bold text-black">rider</span> for their code.</p>
+            
+            <input id="driver-entered-pin" type="number" placeholder="0000" class="w-full bg-gray-100 rounded-xl p-4 mb-4 text-4xl text-center tracking-[0.5em] font-black outline-none border-2 border-transparent focus:border-black">
+            
+            <button onclick="window.verifyPIN()" class="w-full bg-black text-white font-bold py-4 rounded-xl text-lg mb-3">Start Trip</button>
+            <button onclick="window.closeModal('driver-otp-modal'); window.switchScreen('home-screen');" class="text-red-500 font-bold w-full py-2">Cancel</button>
+        </div>
+    </div>
+
+    <div id="rider-modal" class="modal-overlay">
+        <div class="modal-box text-center border-t-8 border-green-500">
+            <h3 class="text-2xl font-black mb-1">Driver Arriving</h3>
+            <p class="text-gray-500 mb-6"><span id="req-driver-name" class="font-bold text-black">Driver</span> • <span id="req-vehicle" class="font-bold text-black"></span></p>
+            
+            <div class="bg-gray-100 rounded-xl p-6 mb-6">
+                <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-2">Give this PIN to driver</p>
+                <p id="rider-pin-display" class="text-5xl font-black tracking-widest text-black">----</p>
+            </div>
+            
+            <div class="bg-gray-100 rounded-xl p-4 mb-6 flex justify-between items-center">
+                <span class="text-sm font-bold text-gray-500">License Plate</span>
+                <span id="rider-plate" class="text-xl font-black">TS 08 --</span>
+            </div>
+
+            <button onclick="window.closeModal('rider-modal'); window.switchScreen('home-screen');" class="w-full bg-black text-white font-bold py-4 rounded-xl text-lg">Close Details</button>
+        </div>
+    </div>
+
+</div>
+
+<datalist id="hubs-list">
+    <option value="Kukatpally Metro"></option>
+    <option value="KPHB Colony"></option>
+    <option value="Ameerpet"></option>
+    <option value="Secunderabad Station"></option>
+    <option value="Uppal"></option>
+</datalist>
+<datalist id="colleges-list">
+    <option value="MREM Kistapur (Malla Reddy)"></option>
+    <option value="JNTUH Main Campus"></option>
+    <option value="CBIT Gandipet"></option>
+    <option value="IIIT Hyderabad"></option>
+</datalist>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, doc, updateDoc, where } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyDtHpHdmy2D2pl4oNCy0gpGlXS3-0rPWlo",
+        authDomain: "mvp1-8b1f7.firebaseapp.com",
+        projectId: "mvp1-8b1f7",
+        storageBucket: "mvp1-8b1f7.firebasestorage.app",
+        messagingSenderId: "13762047285",
+        appId: "1:13762047285:web:707fe76f6df1b7b7c9b07c"
+    };
+
+    let app, db;
+    try {
+        app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+    } catch (error) {
+        console.error("Firebase Init Error:", error);
+    }
+    
+    let myMap; 
+    let currentUser = "Guest"; 
+    let currentRideRequestId = null; 
+    let currentTripIdToUpdate = null; 
+    let currentDriverOTP = null; 
+
+    // Initial Map Setup (Starts at Hyderabad Center)
+    setTimeout(() => {
+        myMap = L.map('map', { zoomControl: false }).setView([17.4065, 78.4772], 12);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(myMap);
+    }, 500);
+
+    const appLocations = {
+        "Kukatpally Metro": { lat: 17.4834, lng: 78.3871 },
+        "KPHB Colony": { lat: 17.4843, lng: 78.3889 },
+        "Ameerpet": { lat: 17.4356, lng: 78.4481 },
+        "Secunderabad Station": { lat: 17.4337, lng: 78.5016 },
+        "Uppal": { lat: 17.3984, lng: 78.5583 },
+        "MREM Kistapur (Malla Reddy)": { lat: 17.6331, lng: 78.5054 },
+        "JNTUH Main Campus": { lat: 17.4933, lng: 78.3914 },
+        "CBIT Gandipet": { lat: 17.3916, lng: 78.3190 },
+        "IIIT Hyderabad": { lat: 17.4455, lng: 78.3489 }
+    };
+
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; 
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2); 
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))); 
+    }
+
+    window.sendOTP = function() {
+        const name = document.getElementById('user-name').value;
+        const contact = document.getElementById('user-contact').value;
+        if(!name || !contact) return alert("Please fill in Name and Contact.");
+        
+        document.getElementById('step-1-phone').classList.add('hidden');
+        document.getElementById('step-2-otp').classList.remove('hidden');
+    }
+
+    window.verifyOTPLogin = function() {
+        const otp = document.getElementById('user-otp').value;
+        if(otp === "1234" || otp === "") { 
+            currentUser = document.getElementById('user-name').value || "Guest";
+            document.getElementById('display-name').innerText = currentUser;
+            
+            // Hide Login, Show Top UI, Show Home Sheet
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('top-ui').style.opacity = "1";
+            window.switchScreen('home-screen');
+            listenForNotifications();
+        } else {
+            alert("Incorrect OTP. Try 1234.");
+        }
+    }
+
+    window.switchScreen = function(screenId) {
+        // Hide all bottom sheets
+        document.querySelectorAll('.bottom-sheet').forEach(sheet => {
+            sheet.classList.remove('active');
+        });
+        
+        // Show requested sheet
+        setTimeout(() => {
+            document.getElementById(screenId).classList.add('active');
+        }, 50); // slight delay for smooth transition
+
+        // Manage floating buttons
+        if(screenId === 'home-screen') {
+            document.getElementById('top-ui').style.display = 'flex';
+            document.getElementById('back-btn').style.display = 'none';
+        } else {
+            document.getElementById('top-ui').style.display = 'none';
+            document.getElementById('back-btn').style.display = 'flex';
+            document.getElementById('back-btn').style.opacity = '1';
+        }
+    }
+
+    window.closeModal = function(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    function listenForNotifications() {
+        if (!db) return;
+
+        const qDriver = query(collection(db, "RideRequests"), where("driverName", "==", currentUser));
+        onSnapshot(qDriver, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added" && change.doc.data().status === "pending") {
+                    document.getElementById('req-rider-name').innerText = change.doc.data().riderName;
+                    document.getElementById('otp-rider-name').innerText = change.doc.data().riderName;
+                    currentRideRequestId = change.doc.id; 
+                    currentTripIdToUpdate = change.doc.data().tripId; 
+                    document.getElementById('driver-modal').classList.add('active');
+                }
+            });
+        });
+
+        const qRider = query(collection(db, "RideRequests"), where("riderName", "==", currentUser));
+        onSnapshot(qRider, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "modified" && change.doc.data().status === "accepted") {
+                    const data = change.doc.data();
+                    document.getElementById('req-driver-name').innerText = data.driverName;
+                    document.getElementById('rider-pin-display').innerText = data.otpCode;
+                    document.getElementById('req-vehicle').innerText = data.vehicleType || "Vehicle";
+                    document.getElementById('rider-plate').innerText = data.licensePlate || "TS08 AB 1234";
+                    document.getElementById('rider-modal').classList.add('active');
+                }
+            });
+        });
+    }
+
+    window.requestRide = async function(tripId, driverName) {
+        try {
+            await addDoc(collection(db, "RideRequests"), {
+                tripId: tripId,
+                driverName: driverName,
+                riderName: currentUser,
+                status: "pending",
+                created_at: serverTimestamp()
+            });
+            alert(`✅ Request sent to ${driverName}!`);
+        } catch (e) {
+            alert("Database Error.");
+        }
+    }
+
+    window.acceptRide = async function() {
+        if (!currentRideRequestId) return;
+        try {
+            const btn = document.getElementById('accept-btn');
+            btn.innerText = "Accepting...";
+            
+            currentDriverOTP = Math.floor(1000 + Math.random() * 9000).toString();
+            
+            const randomLetters = String.fromCharCode(65+Math.floor(Math.random()*26)) + String.fromCharCode(65+Math.floor(Math.random()*26));
+            const randomNums = Math.floor(1000 + Math.random() * 9000);
+            const generatedPlate = `TS 08 ${randomLetters} ${randomNums}`;
+            
+            const vehicleChoice = document.getElementById('driver-vehicle').value;
+
+            const requestRef = doc(db, "RideRequests", currentRideRequestId);
+            await updateDoc(requestRef, { 
+                status: "accepted",
+                otpCode: currentDriverOTP,
+                vehicleType: vehicleChoice,
+                licensePlate: generatedPlate
+            });
+
+            if (currentTripIdToUpdate) {
+                const tripRef = doc(db, "Trips", currentTripIdToUpdate);
+                await updateDoc(tripRef, { status: "booked" });
+            }
+
+            window.closeModal('driver-modal');
+            btn.innerText = "Accept";
+            
+            document.getElementById('driver-otp-modal').classList.add('active');
+
+        } catch (e) {
+            alert("Database Error.");
+        }
+    }
+
+    window.verifyPIN = function() {
+        const enteredPIN = document.getElementById('driver-entered-pin').value;
+        if (enteredPIN === currentDriverOTP) {
+            alert("✅ Valid PIN! Start Navigation.");
+            document.getElementById('driver-entered-pin').value = ""; 
+            window.closeModal('driver-otp-modal');
+            window.switchScreen('home-screen');
+        } else {
+            alert("❌ Incorrect PIN.");
+        }
+    }
+
+    window.findMatches = function() {
+        const riderStart = document.getElementById('rider-start').value;
+        const riderEnd = document.getElementById('rider-end').value;
+        
+        if (!appLocations[riderStart] || !appLocations[riderEnd]) return alert("Select a valid location.");
+        
+        window.switchScreen('rider-results-screen');
+        
+        // Pan map to search location
+        myMap.setView([appLocations[riderStart].lat, appLocations[riderStart].lng], 14);
+        L.marker([appLocations[riderStart].lat, appLocations[riderStart].lng]).addTo(myMap);
+
+        listenForSmartMatches(riderStart, riderEnd);
+    }
+
+    function listenForSmartMatches(searchStart, searchEnd) {
+        if (!db) return;
+        const ridesListDiv = document.getElementById('rides-list');
+        const q = query(collection(db, "Trips"), orderBy("created_at", "desc"));
+
+        onSnapshot(q, (snapshot) => {
+            ridesListDiv.innerHTML = ''; 
+            let matchCount = 0;
+            const riderCoords = appLocations[searchStart];
+            const destCoords = appLocations[searchEnd];
+            
+            const totalTripDistance = calculateDistance(riderCoords.lat, riderCoords.lng, destCoords.lat, destCoords.lng);
+
+            snapshot.forEach((docSnap) => {
+                const trip = docSnap.data();
+                if (trip.status !== "active" || !appLocations[trip.start_location]) return; 
+
+                const driverCoords = appLocations[trip.start_location];
+                const distanceAway = calculateDistance(riderCoords.lat, riderCoords.lng, driverCoords.lat, driverCoords.lng);
+                
+                if (trip.destination === searchEnd && distanceAway < 3.0 && trip.driverName !== currentUser) {
+                    matchCount++;
+                    
+                    const competitorPrice = Math.round(totalTripDistance * 18 + 40); 
+                    const routeMatePrice = Math.round(competitorPrice * 0.55); 
+                    
+                    const iconMap = { "Bike": "🏍️", "Share Auto": "🛺", "Car": "🚗" };
+                    const vIcon = iconMap[trip.vehicleType] || "🚗";
+
+                    // Uber style row: Icon left, Details middle, Price right
+                    const cardHTML = `
+                        <div onclick="window.requestRide('${docSnap.id}', '${trip.driverName}')" class="flex items-center justify-between p-3 border-2 border-transparent hover:border-black rounded-xl cursor-pointer transition bg-white shadow-sm active:scale-95">
+                            <div class="flex items-center gap-4">
+                                <div class="text-4xl bg-gray-100 w-16 h-16 rounded-xl flex items-center justify-center">${vIcon}</div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-black leading-none mb-1">${trip.vehicleType || "Ride"} <span class="text-xs bg-gray-200 px-1 rounded ml-1">👤 1</span></h3>
+                                    <p class="text-xs text-gray-500 font-medium">${trip.driverName} • ${distanceAway.toFixed(1)} km away</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xl font-black text-black">₹${routeMatePrice}</p>
+                                <p class="text-[10px] text-gray-400 line-through">₹${competitorPrice}</p>
+                            </div>
+                        </div>
+                    `;
+                    ridesListDiv.innerHTML += cardHTML;
+                }
+            });
+
+            if (matchCount === 0) {
+                ridesListDiv.innerHTML = `<div class="text-center mt-10"><h3 class="text-xl font-bold">No rides found</h3><p class="text-gray-500 mt-2">Try changing your pickup or dropoff location.</p></div>`;
+            }
+        });
+    }
+
+    window.startDriving = async function() {
+        const startLoc = document.getElementById('driver-start').value;
+        const endLoc = document.getElementById('driver-end').value;
+        const vType = document.getElementById('driver-vehicle').value; 
+        
+        if (!appLocations[startLoc] || !appLocations[endLoc]) return alert("Select a valid location.");
+
+        try {
+            await addDoc(collection(db, "Trips"), {
+                driverName: currentUser, 
+                start_location: startLoc,
+                destination: endLoc,
+                vehicleType: vType, 
+                status: "active",
+                created_at: serverTimestamp() 
+            });
+            
+            alert(`✅ Route live! Going to Map.`);
+            window.switchScreen('home-screen');
+            myMap.setView([appLocations[startLoc].lat, appLocations[startLoc].lng], 14);
+            L.marker([appLocations[startLoc].lat, appLocations[startLoc].lng]).addTo(myMap);
+            
+        } catch (e) {
+            alert("Database error!");
+        }
+    }
+</script>
+</body>
+</html>
